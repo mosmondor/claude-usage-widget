@@ -49,7 +49,12 @@ static class UsageApi
             using var resp = Http.Send(req);
             if (!resp.IsSuccessStatusCode)
             {
-                Error = (int)resp.StatusCode == 401 ? "token expired? run Claude Code" : "HTTP " + (int)resp.StatusCode;
+                Error = (int)resp.StatusCode switch
+                {
+                    401 => "token expired? run Claude Code",
+                    429 => "rate limited (429) - backing off",
+                    var c => "HTTP " + c
+                };
                 return rows;
             }
             using var s = resp.Content.ReadAsStream();
@@ -272,6 +277,7 @@ sealed class WidgetForm : Form
     List<(string model, Agg a, double cost)> _month = new();
     double _monthTotal;
     DateTime _lastScan = DateTime.MinValue;
+    DateTime _apiBackoffUntil = DateTime.MinValue;
     string _refreshed = "loading...";
     bool _drag; Point _dragOrigin;
 
@@ -312,7 +318,7 @@ sealed class WidgetForm : Form
         _tray = new NotifyIcon { Icon = MakeIcon(), Visible = true, Text = "Claude Usage", ContextMenuStrip = menu };
         _tray.DoubleClick += (_, _) => ShowWidget();
 
-        _timer = new System.Windows.Forms.Timer { Interval = 60 * 1000 };
+        _timer = new System.Windows.Forms.Timer { Interval = 5 * 60 * 1000 }; // gentle: 5 min
         _timer.Tick += (_, _) => Rescan();
         _timer.Start();
 
@@ -356,20 +362,31 @@ sealed class WidgetForm : Form
         _busy = true;
         Task.Run(() =>
         {
-            var lim = UsageApi.Fetch();
-            string err = UsageApi.Error;
+            var now = DateTime.Now;
+            List<LimitRow> lim = new(); string err = ""; bool fetched = false;
+            if (now >= _apiBackoffUntil)
+            {
+                lim = UsageApi.Fetch();
+                err = UsageApi.Error;
+                fetched = true;
+                if (err.Contains("429")) _apiBackoffUntil = now.AddMinutes(30);   // rate limited -> long back-off
+                else if (err.Length > 0) _apiBackoffUntil = now.AddMinutes(5);     // other error -> short back-off
+            }
             bool scanned = false;
-            if ((DateTime.Now - _lastScan).TotalMinutes >= 5)
-                try { Scanner.Scan(); _lastScan = DateTime.Now; scanned = true; } catch { }
+            if ((now - _lastScan).TotalMinutes >= 5)
+                try { Scanner.Scan(); _lastScan = now; scanned = true; } catch { }
             _busy = false;
-            try { BeginInvoke(() => Apply(lim, err, scanned)); } catch { }
+            try { BeginInvoke(() => Apply(lim, err, scanned, fetched)); } catch { }
         });
     }
 
-    void Apply(List<LimitRow> lim, string err, bool scanned)
+    void Apply(List<LimitRow> lim, string err, bool scanned, bool fetched)
     {
-        if (lim.Count > 0 || err.Length == 0) _limits = lim;
-        _apiErr = err;
+        if (fetched)   // only touch limits/err when we actually called the API (keep last-good during back-off)
+        {
+            if (lim.Count > 0 || err.Length == 0) _limits = lim;
+            _apiErr = err;
+        }
         if (scanned || _todayTok == 0)
         {
             var (a, c) = Summary.Today();
