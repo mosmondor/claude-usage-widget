@@ -32,18 +32,33 @@ Two independent local data sources — nothing is uploaded anywhere:
 ## Requirements
 
 - Windows
-- [.NET 9 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/9.0)
+- [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) (LTS)
 - Claude Code installed and logged in (for the plan-limit numbers)
 
 ## Build & run
 
 ```sh
-dotnet build -c Release
-# then run bin/Release/net9.0-windows/ClaudeUsageWidget.exe
+dotnet build ClaudeUsageWidget.sln -c Release
+dotnet test  ClaudeUsageWidget.sln -c Release
+# then run ClaudeUsageWidget/bin/Release/net8.0-windows/ClaudeUsageWidget.exe
 ```
 
 To start it automatically at login, drop a shortcut to the exe into
 `shell:startup`.
+
+## Project layout
+
+- **`ClaudeUsageWidget.Core`** — parsing, pricing, de-duplication and the month-scoped
+  transcript store. No UI dependency, fully unit-tested.
+- **`ClaudeUsageWidget`** — the WinForms tray + floating-card UI (`net8.0-windows`).
+- **`ClaudeUsageWidget.Tests`** — xUnit tests (parsing, dates/timezone, pricing, de-dup, cache).
+
+### De-duplication rule
+
+Claude Code writes the same assistant message into several transcript files, and retries can
+report different token counts for one message id. To stay order-independent, when several records
+share a message id the **canonical** one is the record with the greatest total tokens (ties broken
+by output, then input, then cache-read, then cache-write). Records without an id are all kept.
 
 ## Caveats
 
