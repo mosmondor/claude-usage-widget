@@ -200,7 +200,7 @@ internal sealed class WidgetForm : Form
     private static readonly Color Red = Color.FromArgb(0xE0, 0x55, 0x3B);
     private static readonly Color Green = Color.FromArgb(0x6E, 0xC2, 0x7A);
     private static readonly Color Track = Color.FromArgb(52, 52, 58);
-    private static readonly Color Hover = Color.FromArgb(38, 38, 44);
+    private static readonly Color Hover = Color.FromArgb(52, 52, 62);   // must read as "this row is clickable"
     private static readonly Color Muted = Color.FromArgb(148, 148, 156);
     private static readonly Color Fg = Color.FromArgb(238, 238, 240);
     private static readonly Color LineC = Color.FromArgb(46, 46, 52);
@@ -249,7 +249,12 @@ internal sealed class WidgetForm : Form
     private long _historyMtime;
     private int _scroll;
     private int _contentH;
-    private Hit _hover;
+
+    /// <summary>
+    /// Which row the mouse is over, identified by content rather than by object: every paint
+    /// rebuilds the hit list, so a remembered Hit reference would never match again.
+    /// </summary>
+    private string _hoverKey = "";
     private Rectangle _pillUsage;
     private Rectangle _pillSessions;
     private string _launchErr = "";
@@ -590,6 +595,22 @@ internal sealed class WidgetForm : Form
         return null;
     }
 
+    private static string HitKey(Hit h)
+    {
+        if (h == null) return "";
+        if (h.IsNew) return h.Group == null ? "" : "new:" + h.Group.Project;
+        return h.Session == null ? "" : "session:" + h.Session.SessionId;
+    }
+
+    private void SetHover(Hit h)
+    {
+        string key = Clickable(h) ? HitKey(h) : "";
+        if (key == _hoverKey) return;
+        _hoverKey = key;
+        Cursor = key.Length > 0 ? Cursors.Hand : Cursors.Default;
+        Invalidate();
+    }
+
     private static bool Clickable(Hit h)
     {
         if (h == null) return false;
@@ -615,13 +636,7 @@ internal sealed class WidgetForm : Form
         }
         else if (_tab == TabSessions)
         {
-            Hit h = HitTest(e.Location);
-            if (!ReferenceEquals(h, _hover))
-            {
-                _hover = h;
-                Cursor = Clickable(h) ? Cursors.Hand : Cursors.Default;
-                Invalidate();
-            }
+            SetHover(HitTest(e.Location));
         }
         base.OnMouseMove(e);
     }
@@ -637,7 +652,7 @@ internal sealed class WidgetForm : Form
 
     protected override void OnMouseLeave(EventArgs e)
     {
-        if (_hover != null) { _hover = null; Cursor = Cursors.Default; Invalidate(ListRect); }
+        SetHover(null);
         base.OnMouseLeave(e);
     }
 
@@ -648,8 +663,7 @@ internal sealed class WidgetForm : Form
             int maxScroll = Math.Max(0, _contentH - ListRect.Height);
             _scroll = Math.Clamp(_scroll - Math.Sign(e.Delta) * SessH, 0, maxScroll);
             LayoutHits();
-            _hover = HitTest(e.Location);
-            Cursor = Clickable(_hover) ? Cursors.Hand : Cursors.Default;
+            SetHover(HitTest(e.Location));
             Invalidate();
         }
         base.OnMouseWheel(e);
@@ -680,7 +694,7 @@ internal sealed class WidgetForm : Form
         if (_tab == tab) return;
         _tab = tab;
         _scroll = 0;
-        _hover = null;
+        _hoverKey = "";
         Cursor = Cursors.Default;
         _launchErr = "";
         Relayout();
@@ -906,7 +920,7 @@ internal sealed class WidgetForm : Form
         {
             if (h.Row.Bottom < list.Y || h.Row.Y > list.Bottom) continue;
 
-            bool hot = ReferenceEquals(h, _hover) && Clickable(h);
+            bool hot = _hoverKey.Length > 0 && HitKey(h) == _hoverKey && Clickable(h);
             if (hot) FillRounded(g, h.Rect, 6, Hover);
 
             if (h.IsNew) PaintGroupHeader(g, h, fBold, fTiny, hot);
