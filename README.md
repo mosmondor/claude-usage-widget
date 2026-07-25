@@ -38,7 +38,7 @@ Borderless floating card, drag with the left mouse button, right-click (or the t
 
 ## How it works
 
-Two independent local data sources — nothing is uploaded anywhere:
+Local data sources only — nothing is uploaded anywhere:
 
 1. **Plan limits** come from Claude Code's own usage endpoint,
    `GET https://api.anthropic.com/api/oauth/usage`, authenticated with the OAuth
@@ -50,11 +50,12 @@ Two independent local data sources — nothing is uploaded anywhere:
    transcripts in `~/.claude/projects/**/*.jsonl` (the `message.usage` fields).
    Records are de-duplicated globally by message id (Claude Code writes the same
    message into multiple files) and filtered to Claude models only.
-3. **The session list** comes from two files Claude Code already maintains:
-   `~/.claude/sessions/<pid>.json` for the processes running right now (the file name
-   is the pid, and it is verified against a real claude process before a session counts
-   as live), and `~/.claude/history.jsonl` for the prompt log that makes closed
-   sessions resumable and recognisable. Read-only: the widget never writes there.
+3. **The session list** is assembled from three places Claude Code already maintains:
+   `~/.claude/sessions/<pid>.json` for the processes running right now (the file name is
+   the pid, and it is verified against a real claude process before a session counts as
+   live); `~/.claude/history.jsonl`, the prompt log, for which conversations exist, in
+   which folder, and when each was last touched; and each session's own transcript, which
+   is the only place its name is recorded. Read-only: the widget never writes to any of them.
 
 ## Requirements
 
@@ -83,8 +84,8 @@ To start it automatically at login, drop a shortcut to the exe into
   transcript store, and the session readers / launcher command. No UI dependency, fully
   unit-tested.
 - **`ClaudeUsageWidget`** — the WinForms tray + floating-card UI (`net8.0-windows`).
-- **`ClaudeUsageWidget.Tests`** — xUnit tests (parsing, dates/timezone, pricing, de-dup, cache,
-  session reading, grouping, launch command).
+- **`ClaudeUsageWidget.Tests`** — 80 xUnit tests (parsing, dates/timezone, pricing, de-dup, cache,
+  session reading, name resolution, grouping, launch command, environment scrubbing).
 
 ### Where session names come from
 
