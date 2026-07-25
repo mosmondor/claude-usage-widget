@@ -1,3 +1,4 @@
+using Microsoft.Win32;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -691,8 +692,9 @@ internal sealed class WidgetForm : Form
         try
         {
             ProcessStartInfo psi = new ProcessStartInfo(cmd.exe, cmd.args);
-            psi.UseShellExecute = true;
+            psi.UseShellExecute = false;                                    // required to edit the environment
             if (string.IsNullOrEmpty(_wtExe)) psi.WorkingDirectory = cwd;   // no wt: the shell window needs it
+            ScrubEnvironment(psi);
             Process.Start(psi);
             _launchErr = "";
         }
@@ -701,6 +703,39 @@ internal sealed class WidgetForm : Form
             _launchErr = e.Message.Length > 40 ? e.Message.Substring(0, 40) : e.Message;
         }
         Invalidate();
+    }
+
+    /// <summary>
+    /// Drops the Claude Code session markers this process may have inherited, so the session being
+    /// started is a real top-level one. Without this a widget launched from inside Claude Code
+    /// hands CLAUDE_CODE_CHILD_SESSION to the new terminal and its transcript is never saved.
+    /// </summary>
+    private static void ScrubEnvironment(ProcessStartInfo psi)
+    {
+        List<string> current = new List<string>(psi.Environment.Keys);
+        foreach (string name in ChildEnv.NamesToRemove(current, PersistedEnvNames()))
+            psi.Environment.Remove(name);
+    }
+
+    private static List<string> PersistedEnvNames()
+    {
+        List<string> names = new List<string>();
+        AddKeyNames(names, Registry.CurrentUser, "Environment");
+        AddKeyNames(names, Registry.LocalMachine, "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment");
+        return names;
+    }
+
+    private static void AddKeyNames(List<string> into, RegistryKey root, string path)
+    {
+        try
+        {
+            using (RegistryKey key = root.OpenSubKey(path))
+            {
+                if (key == null) return;
+                foreach (string name in key.GetValueNames()) into.Add(name);
+            }
+        }
+        catch { }
     }
 
     private static Color BarColor(int pct, string sev)

@@ -23,6 +23,11 @@ A tiny always-on-top Windows desktop widget for **Claude Code**, with two pages.
 Only named sessions are listed — a name is what makes a conversation recognisable weeks later,
 and the list stays short. A running session is always shown even if it has no name yet.
 
+Sessions are started with a clean environment: if the widget itself was launched from inside a
+Claude Code session, it would otherwise pass on markers like `CLAUDE_CODE_CHILD_SESSION`, and the
+new session would silently stop saving its transcript. Variables you have set persistently are
+kept — those are configuration, not inherited markers.
+
 Borderless floating card, drag with the left mouse button, right-click (or the tray icon) for the menu.
 
 <p align="center">
