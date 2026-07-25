@@ -13,6 +13,10 @@ puts you back in one click.
   <img src="docs/screenshot.png" alt="Usage tab" width="290">
 </p>
 
+<p align="center">
+  <img src="docs/sessions.gif" alt="Clicking through the Sessions tab" width="300">
+</p>
+
 ## Download
 
 Grab the [latest release](https://github.com/mosmondor/claude-usage-widget/releases/latest):
