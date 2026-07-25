@@ -41,4 +41,46 @@ internal static class TestUtil
         File.WriteAllLines(path, lines);
         File.SetLastWriteTime(path, mtimeLocal);
     }
+
+    public static long Ms(DateTime local)
+    {
+        return new DateTimeOffset(local).ToUnixTimeMilliseconds();
+    }
+
+    // One line of ~/.claude/history.jsonl as Claude Code writes it.
+    public static string HistoryLine(string sessionId, string project, string display, DateTime whenLocal)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            display = display,
+            pastedContents = new { },
+            timestamp = Ms(whenLocal),
+            project = project,
+            sessionId = sessionId
+        });
+    }
+
+    // One ~/.claude/sessions/<pid>.json file.
+    public static void WriteSessionFile(string dir, int pid, string sessionId, string cwd, string status, DateTime updatedLocal, string name = "cli")
+    {
+        string json = JsonSerializer.Serialize(new
+        {
+            pid = pid,
+            sessionId = sessionId,
+            cwd = cwd,
+            startedAt = Ms(updatedLocal.AddHours(-1)),
+            version = "2.1.220",
+            kind = "interactive",
+            entrypoint = "cli",
+            name = name,
+            updatedAt = Ms(updatedLocal),
+            status = status
+        });
+        File.WriteAllText(Path.Combine(dir, pid + ".json"), json);
+    }
+
+    public static string Uuid(int seed)
+    {
+        return new Guid(seed, 0, 0, new byte[8]).ToString();
+    }
 }

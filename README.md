@@ -1,6 +1,8 @@
 # Claude Usage Widget
 
-A tiny always-on-top Windows desktop widget that shows your **Claude Code / Claude subscription usage** at a glance:
+A tiny always-on-top Windows desktop widget for **Claude Code**, with two pages.
+
+**Usage** — your Claude subscription usage at a glance:
 
 - **Plan limits** — the same numbers as Claude Code's `/usage`:
   - **Session** (rolling 5-hour window) — % used + reset countdown
@@ -10,9 +12,24 @@ A tiny always-on-top Windows desktop widget that shows your **Claude Code / Clau
 - **This month, per model** — token volume + a rough **API-equivalent** cost estimate
 - **Today** — total tokens + estimate
 
+**Sessions** — a launcher for your named conversations, grouped by project:
+
+- One row per session, showing the name you gave it with `/rename` or `claude -n <name>`
+- **Running sessions** come first, marked live with their status (`busy` / `idle`).
+  Clicking one **brings its terminal window to the front**
+- **Closed sessions** reopen on click, via `claude -r <session>` in the right folder
+- Hovering a project shows **+ new**, which starts a fresh conversation there
+
+Only named sessions are listed — a name is what makes a conversation recognisable weeks later,
+and the list stays short. A running session is always shown even if it has no name yet.
+
 Borderless floating card, drag with the left mouse button, right-click (or the tray icon) for the menu.
 
-<p align="center"><img src="docs/screenshot.png" alt="Claude Usage Widget" width="300"></p>
+<p align="center">
+  <img src="docs/screenshot.png" alt="Usage tab" width="290">
+  &nbsp;&nbsp;
+  <img src="docs/sessions.png" alt="Sessions tab" width="290">
+</p>
 
 ## How it works
 
@@ -28,12 +45,21 @@ Two independent local data sources — nothing is uploaded anywhere:
    transcripts in `~/.claude/projects/**/*.jsonl` (the `message.usage` fields).
    Records are de-duplicated globally by message id (Claude Code writes the same
    message into multiple files) and filtered to Claude models only.
+3. **The session list** comes from two files Claude Code already maintains:
+   `~/.claude/sessions/<pid>.json` for the processes running right now (the file name
+   is the pid, and it is verified against a real claude process before a session counts
+   as live), and `~/.claude/history.jsonl` for the prompt log that makes closed
+   sessions resumable and recognisable. Read-only: the widget never writes there.
 
 ## Requirements
 
 - Windows
 - [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) (LTS)
 - Claude Code installed and logged in (for the plan-limit numbers)
+- **Optional:** [Windows Terminal](https://github.com/microsoft/terminal). With it, a session
+  opens as a new **tab** in your existing window, named after the project
+  (`wt -w 0 nt -d <cwd> --title <project> pwsh -NoExit -Command claude -r <id>`).
+  Without it the widget falls back to a plain shell window per session.
 
 ## Build & run
 
@@ -48,10 +74,24 @@ To start it automatically at login, drop a shortcut to the exe into
 
 ## Project layout
 
-- **`ClaudeUsageWidget.Core`** — parsing, pricing, de-duplication and the month-scoped
-  transcript store. No UI dependency, fully unit-tested.
+- **`ClaudeUsageWidget.Core`** — parsing, pricing, de-duplication, the month-scoped
+  transcript store, and the session readers / launcher command. No UI dependency, fully
+  unit-tested.
 - **`ClaudeUsageWidget`** — the WinForms tray + floating-card UI (`net8.0-windows`).
-- **`ClaudeUsageWidget.Tests`** — xUnit tests (parsing, dates/timezone, pricing, de-dup, cache).
+- **`ClaudeUsageWidget.Tests`** — xUnit tests (parsing, dates/timezone, pricing, de-dup, cache,
+  session reading, grouping, launch command).
+
+### Where session names come from
+
+A session's name is not kept in any index — it lives only inside that session's own transcript,
+written there by `/rename` (or by the reminder Claude Code injects when you pass `-n`). Transcripts
+run to hundreds of megabytes in total, so resolving names is bounded twice: a running session's name
+is read from its session file for free, and a closed session's transcript is scanned once and cached
+against its mtime + size. Since a closed transcript never changes again, it is never re-read.
+
+For the rare running session with no name, the fallback label is the first prompt with actual
+substance — not a slash command, not a `!` passthrough, not a `[Pasted text …]` placeholder, and at
+least 12 characters, which is what rules out "continue" and "ok".
 
 ### De-duplication rule
 
