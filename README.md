@@ -1,16 +1,30 @@
 # Claude Usage Widget
 
-A tiny always-on-top Windows desktop widget for **Claude Code**, with two pages.
+A tiny always-on-top Windows widget for **Claude Code** that answers the two questions you
+keep asking: *how much of my plan is left*, and *where was I?*
 
-**Usage** — your Claude subscription usage at a glance:
+Closing a Claude Code window is easy. Getting back to it is not — you don't remember which
+conversations existed, in which folder, or where each one stopped. This lists them by name and
+puts you back in one click.
 
-- **Plan limits** — the same numbers as Claude Code's `/usage`:
-  - **Session** (rolling 5-hour window) — % used + reset countdown
-  - **Weekly · all models** — % used + reset
-  - **Weekly · per model** (e.g. Fable) — % used + reset
-  - **Extra credits** (if enabled)
-- **This month, per model** — token volume + a rough **API-equivalent** cost estimate
-- **Today** — total tokens + estimate
+<p align="center">
+  <img src="docs/sessions.png" alt="Sessions tab" width="290">
+  &nbsp;&nbsp;
+  <img src="docs/screenshot.png" alt="Usage tab" width="290">
+</p>
+
+## Download
+
+Grab the [latest release](https://github.com/mosmondor/claude-usage-widget/releases/latest):
+
+- **`…-selfcontained.zip`** — one 68 MB exe, nothing to install. Unzip, run, done.
+- **`…-framework-dependent.zip`** — 200 KB, needs the
+  [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0).
+
+No installer, no service, no autostart unless you add one: it is a single exe that puts an icon
+in your tray.
+
+## What it shows
 
 **Sessions** — a launcher for your named conversations, grouped by project:
 
@@ -23,18 +37,22 @@ A tiny always-on-top Windows desktop widget for **Claude Code**, with two pages.
 Only named sessions are listed — a name is what makes a conversation recognisable weeks later,
 and the list stays short. A running session is always shown even if it has no name yet.
 
+**Usage** — your Claude subscription usage at a glance:
+
+- **Plan limits** — the same numbers as Claude Code's `/usage`:
+  - **Session** (rolling 5-hour window) — % used + reset countdown
+  - **Weekly · all models** — % used + reset
+  - **Weekly · per model** (e.g. Fable) — % used + reset
+  - **Extra credits** (if enabled)
+- **This month, per model** — token volume + a rough **API-equivalent** cost estimate
+- **Today** — total tokens + estimate
+
+Borderless floating card, drag with the left mouse button, right-click (or the tray icon) for the menu.
+
 Sessions are started with a clean environment: if the widget itself was launched from inside a
 Claude Code session, it would otherwise pass on markers like `CLAUDE_CODE_CHILD_SESSION`, and the
 new session would silently stop saving its transcript. Variables you have set persistently are
 kept — those are configuration, not inherited markers.
-
-Borderless floating card, drag with the left mouse button, right-click (or the tray icon) for the menu.
-
-<p align="center">
-  <img src="docs/screenshot.png" alt="Usage tab" width="290">
-  &nbsp;&nbsp;
-  <img src="docs/sessions.png" alt="Sessions tab" width="290">
-</p>
 
 ## How it works
 
