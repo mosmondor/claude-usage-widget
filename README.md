@@ -1,11 +1,15 @@
 # Claude Usage Widget
 
-A tiny always-on-top Windows widget for **Claude Code** that answers the two questions you
-keep asking: *how much of my plan is left*, and *where was I?*
+A tiny always-on-top Windows widget for **Claude Code** that answers the question you keep
+asking: *where was I?*
 
 Closing a Claude Code window is easy. Getting back to it is not — you don't remember which
 conversations existed, in which folder, or where each one stopped. This lists them by name and
-puts you back in one click.
+puts you back in one click. It also keeps a running count of the tokens you have burned this
+month, per model.
+
+**It reads local files and nothing else** — no network calls, no credentials, no account access.
+See [why there are no plan-limit bars](#why-there-are-no-plan-limit-bars).
 
 <p align="center">
   <img src="docs/sessions.png" alt="Sessions tab" width="290">
@@ -21,7 +25,7 @@ puts you back in one click.
 
 Grab the [latest release](https://github.com/mosmondor/claude-usage-widget/releases/latest):
 
-- **`…-selfcontained.zip`** — one 68 MB exe, nothing to install. Unzip, run, done.
+- **`…-selfcontained.zip`** — one 68 MB exe, nothing to install at all. Unzip, run, done.
 - **`…-framework-dependent.zip`** — 200 KB, needs the
   [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0).
 
@@ -41,13 +45,8 @@ in your tray.
 Only named sessions are listed — a name is what makes a conversation recognisable weeks later,
 and the list stays short. A running session is always shown even if it has no name yet.
 
-**Usage** — your Claude subscription usage at a glance:
+**Usage** — what you have spent, computed from your own transcripts:
 
-- **Plan limits** — the same numbers as Claude Code's `/usage`:
-  - **Session** (rolling 5-hour window) — % used + reset countdown
-  - **Weekly · all models** — % used + reset
-  - **Weekly · per model** (e.g. Fable) — % used + reset
-  - **Extra credits** (if enabled)
 - **This month, per model** — token volume + a rough **API-equivalent** cost estimate
 - **Today** — total tokens + estimate
 
@@ -60,30 +59,48 @@ kept — those are configuration, not inherited markers.
 
 ## How it works
 
-Local data sources only — nothing is uploaded anywhere:
+Local files only. The widget makes no network requests of any kind and never touches your
+credentials:
 
-1. **Plan limits** come from Claude Code's own usage endpoint,
-   `GET https://api.anthropic.com/api/oauth/usage`, authenticated with the OAuth
-   access token that Claude Code stores in `~/.claude/.credentials.json`.
-   The widget reads that token **locally at runtime** and sends it only to
-   Anthropic's usage endpoint (exactly like Claude Code does). It is never
-   stored, logged, or transmitted anywhere else.
-2. **Per-model token counts** are computed by scanning your local Claude Code
+1. **Per-model token counts** are computed by scanning your local Claude Code
    transcripts in `~/.claude/projects/**/*.jsonl` (the `message.usage` fields).
    Records are de-duplicated globally by message id (Claude Code writes the same
    message into multiple files) and filtered to Claude models only.
-3. **The session list** is assembled from three places Claude Code already maintains:
+2. **The session list** is assembled from three places Claude Code already maintains:
    `~/.claude/sessions/<pid>.json` for the processes running right now (the file name is
    the pid, and it is verified against a real claude process before a session counts as
    live); `~/.claude/history.jsonl`, the prompt log, for which conversations exist, in
    which folder, and when each was last touched; and each session's own transcript, which
    is the only place its name is recorded. Read-only: the widget never writes to any of them.
 
+## Why there are no plan-limit bars
+
+Version 1.2 drew the same percentages as Claude Code's `/usage` — session, weekly, per-model.
+It got them from an undocumented endpoint, `GET /api/oauth/usage`, using the OAuth token Claude
+Code stores locally. **That was not permitted, and it has been removed.**
+
+Claude Code's own [legal and compliance page](https://code.claude.com/docs/en/legal-and-compliance)
+states that OAuth authentication "is intended exclusively for purchasers of Claude Free, Pro, Max,
+Team, and Enterprise subscription plans and is designed to support ordinary use of Claude Code and
+other native Anthropic applications", and that Anthropic "reserves the right to take measures to
+enforce these restrictions". The
+[Consumer Terms](https://www.anthropic.com/legal/consumer-terms) separately prohibit accessing the
+Services "through automated or non-human means, whether through a bot, script, or otherwise"
+except via an Anthropic API key. This widget is not a native Anthropic application and does not
+use an API key, so the whole path had to go.
+
+There is no compliant substitute. Claude Code's officially supported
+[OpenTelemetry export](https://code.claude.com/docs/en/monitoring-usage)
+(`CLAUDE_CODE_ENABLE_TELEMETRY=1`) emits `claude_code.token.usage` and `claude_code.cost.usage`,
+which covers token and cost figures — but explicitly not plan or rate-limit utilisation. For those
+percentages, run `/usage` inside Claude Code. That is what it is for.
+
 ## Requirements
 
 - Windows
 - [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) (LTS)
-- Claude Code installed and logged in (for the plan-limit numbers)
+  — only for the framework-dependent build
+- Claude Code, for there to be anything to read
 - **Optional:** [Windows Terminal](https://github.com/microsoft/terminal). With it, a session
   opens as a new **tab** in your existing window, named after the project
   (`wt -w 0 nt -d <cwd> --title <project> pwsh -NoExit -Command claude -r <id>`).
@@ -106,7 +123,7 @@ To start it automatically at login, drop a shortcut to the exe into
   transcript store, and the session readers / launcher command. No UI dependency, fully
   unit-tested.
 - **`ClaudeUsageWidget`** — the WinForms tray + floating-card UI (`net8.0-windows`).
-- **`ClaudeUsageWidget.Tests`** — 80 xUnit tests (parsing, dates/timezone, pricing, de-dup, cache,
+- **`ClaudeUsageWidget.Tests`** — 76 xUnit tests (parsing, dates/timezone, pricing, de-dup, cache,
   session reading, name resolution, grouping, launch command, environment scrubbing).
 
 ### Where session names come from
@@ -138,8 +155,9 @@ by output, then input, then cache-read, then cache-write). Records without an id
   makes the estimate run high. For an authoritative dollar figure use
   [`ccusage`](https://github.com/ryoppippi/ccusage). Adjust the rates in
   `Pricing.For(...)` if you want.
-- The plan-limit endpoint is **undocumented / internal** and may change at any
-  time. This is a personal convenience tool; use at your own risk.
+- The files it reads are **Claude Code internals** and are not a documented interface —
+  they can change shape without warning, and this will break when they do. It is a personal
+  convenience tool; use at your own risk.
 
 ## License
 

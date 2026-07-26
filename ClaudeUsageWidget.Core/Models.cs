@@ -25,12 +25,3 @@ public sealed class UsageRecord
     public long CacheWrite { get; set; }
     public long Total => In + Out + CacheRead + CacheWrite;
 }
-
-/// <summary>A plan-usage bar from the /api/oauth/usage endpoint.</summary>
-public sealed class LimitRow
-{
-    public string Label { get; set; } = "";
-    public int Percent { get; set; }
-    public DateTimeOffset? ResetsAt { get; set; }
-    public string Severity { get; set; } = "normal";
-}

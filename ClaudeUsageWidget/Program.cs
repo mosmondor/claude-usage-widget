@@ -4,7 +4,6 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
 using System.Runtime.InteropServices;
-using System.Text.Json;
 using ClaudeUsageWidget.Core;
 
 namespace ClaudeUsageWidget;
@@ -19,122 +18,17 @@ internal static class Program
     }
 }
 
-/// <summary>Fetches plan limits from the Claude Code usage endpoint; token is read locally at runtime.</summary>
-internal static class UsageApi
-{
-    private static readonly HttpClient Http = CreateClient();
-
-    public static string Error = "";
-
-    private static string CredPath
-    {
-        get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", ".credentials.json"); }
-    }
-
-    private static string CacheFile
-    {
-        get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClaudeUsageWidget", "limits.json"); }
-    }
-
-    private static HttpClient CreateClient()
-    {
-        HttpClient c = new HttpClient();
-        c.Timeout = TimeSpan.FromSeconds(20);
-        return c;
-    }
-
-    public static List<LimitRow> Fetch()
-    {
-        Error = "";
-        List<LimitRow> rows = new List<LimitRow>();
-        string tok = ReadToken();
-        if (tok == null) { Error = "no token (.credentials.json)"; return rows; }
-        try
-        {
-            using (HttpRequestMessage req = new HttpRequestMessage(HttpMethod.Get, "https://api.anthropic.com/api/oauth/usage"))
-            {
-                req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + tok);
-                req.Headers.TryAddWithoutValidation("anthropic-beta", "oauth-2025-04-20");
-                req.Headers.TryAddWithoutValidation("User-Agent", "claude-usage-widget/1.2");
-                using (HttpResponseMessage resp = Http.Send(req))
-                {
-                    if (!resp.IsSuccessStatusCode)
-                    {
-                        int code = (int)resp.StatusCode;
-                        if (code == 401) Error = "token expired? run Claude Code";
-                        else if (code == 429) Error = "rate limited - retrying";
-                        else Error = "HTTP " + code;
-                        return rows;
-                    }
-                    string body = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
-                    rows = UsageApiParser.Parse(body);
-                    if (rows.Count > 0) SaveCache(rows);
-                    return rows;
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            Error = e.Message.Length > 46 ? e.Message.Substring(0, 46) : e.Message;
-            return rows;
-        }
-    }
-
-    public static List<LimitRow> LoadCache()
-    {
-        try
-        {
-            if (File.Exists(CacheFile))
-                return JsonSerializer.Deserialize<List<LimitRow>>(File.ReadAllText(CacheFile)) ?? new List<LimitRow>();
-        }
-        catch { }
-        return new List<LimitRow>();
-    }
-
-    private static void SaveCache(List<LimitRow> rows)
-    {
-        try
-        {
-            string dir = Path.GetDirectoryName(CacheFile);
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            File.WriteAllText(CacheFile, JsonSerializer.Serialize(rows));
-        }
-        catch { }
-    }
-
-    private static string ReadToken()
-    {
-        try
-        {
-            using (JsonDocument doc = JsonDocument.Parse(File.ReadAllText(CredPath)))
-                return Find(doc.RootElement);
-        }
-        catch { return null; }
-    }
-
-    private static string Find(JsonElement e)
-    {
-        if (e.ValueKind == JsonValueKind.Object)
-        {
-            foreach (JsonProperty p in e.EnumerateObject())
-            {
-                if ((p.NameEquals("accessToken") || p.NameEquals("access_token")) && p.Value.ValueKind == JsonValueKind.String)
-                    return p.Value.GetString();
-                string r = Find(p.Value);
-                if (r != null) return r;
-            }
-        }
-        else if (e.ValueKind == JsonValueKind.Array)
-        {
-            foreach (JsonElement it in e.EnumerateArray())
-            {
-                string r = Find(it);
-                if (r != null) return r;
-            }
-        }
-        return null;
-    }
-}
+// There is deliberately no code here that talks to Anthropic's servers.
+//
+// Earlier versions read the OAuth token from ~/.claude/.credentials.json and called the
+// undocumented GET /api/oauth/usage endpoint to draw plan-limit bars. That is not permitted:
+// Claude Code's own terms state that OAuth authentication "is intended exclusively for
+// purchasers of ... subscription plans and is designed to support ordinary use of Claude Code
+// and other native Anthropic applications", and the Consumer Terms prohibit accessing the
+// Services "through automated or non-human means" except via an API key. This widget is not a
+// native Anthropic application, so the whole path was removed in v1.3.0.
+//
+// Everything below reads local files only. Do not reintroduce a network call here.
 
 /// <summary>Finds the terminal and shell used to open a session. Windows Terminal is optional.</summary>
 internal static class Terminals
@@ -177,7 +71,6 @@ internal static class Terminals
 internal sealed class WidgetForm : Form
 {
     private const int Pad = 16;
-    private const int RowH = 46;
     private const int HeadH = 40;
     private const int TabH = 28;
     private const int FootH = 30;
@@ -228,16 +121,12 @@ internal sealed class WidgetForm : Form
     private readonly List<Hit> _hits = new List<Hit>();
 
     private volatile bool _busy;
-    private List<LimitRow> _limits;
-    private string _apiErr = "";
     private long _todayTok;
     private double _todayCost;
     private List<(string model, Agg agg, double cost)> _month = new List<(string, Agg, double)>();
     private double _monthTotal;
     private bool _haveTokenData;
     private DateTime _lastScan = DateTime.MinValue;
-    private DateTime _nextFetch = DateTime.MinValue;
-    private int _errStreak;
     private string _refreshed = "loading...";
     private bool _drag;
     private bool _dragMoved;
@@ -275,7 +164,6 @@ internal sealed class WidgetForm : Form
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClaudeUsageWidget", "session-names.json"));
         _wtExe = Terminals.FindWt();
         _shellExe = Terminals.FindShell();
-        _limits = UsageApi.LoadCache();
 
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
@@ -284,7 +172,7 @@ internal sealed class WidgetForm : Form
         ShowInTaskbar = false;
         DoubleBuffered = true;
         Text = "Claude Usage";
-        Size = new Size(W, HeadH + TabH + 3 * RowH + 100 + FootH);
+        Size = new Size(W, HeadH + TabH + 160 + FootH);
         Rectangle wa = Screen.PrimaryScreen.WorkingArea;
         Location = new Point(wa.Right - Width - 18, wa.Top + 18);
 
@@ -395,33 +283,11 @@ internal sealed class WidgetForm : Form
     private void Rescan(bool force)
     {
         if (_busy) return;
-        if (!force && !Visible) return;   // no polling while hidden
+        if (!force && !Visible) return;   // no work while hidden
         _busy = true;
         Task.Run(new Action(() =>
         {
             DateTime now = DateTime.Now;
-            List<LimitRow> lim = new List<LimitRow>();
-            string err = "";
-            bool ok = false;
-            bool fetched = false;
-            if (force || now >= _nextFetch)
-            {
-                fetched = true;
-                lim = UsageApi.Fetch();
-                err = UsageApi.Error;
-                ok = err.Length == 0 && lim.Count > 0;
-                if (ok)
-                {
-                    _errStreak = 0;
-                    _nextFetch = now.AddMinutes(BaseMinutes);
-                }
-                else
-                {
-                    if (_errStreak < 6) _errStreak++;
-                    double back = Math.Min(60.0, Math.Pow(2, _errStreak - 1)); // 1,2,4,8,16,32 -> cap 60 min
-                    _nextFetch = now.AddMinutes(back);
-                }
-            }
             bool scanned = false;
             if (force || (now - _lastScan).TotalMinutes >= BaseMinutes)
             {
@@ -430,12 +296,12 @@ internal sealed class WidgetForm : Form
             }
             List<ProjectGroup> groups = LoadGroups();
             _busy = false;
-            try { BeginInvoke(new Action(() => Apply(lim, err, scanned, ok, fetched, groups))); }
+            try { BeginInvoke(new Action(() => Apply(scanned, groups))); }
             catch { }
         }));
     }
 
-    /// <summary>Sessions only: no HTTP, no transcript scan. Used when switching to the Sessions tab.</summary>
+    /// <summary>Sessions only: no transcript scan. Used when switching to the Sessions tab.</summary>
     private void RefreshSessions()
     {
         Task.Run(new Action(() =>
@@ -491,13 +357,8 @@ internal sealed class WidgetForm : Form
         }
     }
 
-    private void Apply(List<LimitRow> lim, string err, bool scanned, bool ok, bool fetched, List<ProjectGroup> groups)
+    private void Apply(bool scanned, List<ProjectGroup> groups)
     {
-        if (fetched)
-        {
-            if (ok) _limits = lim;
-            _apiErr = err;
-        }
         if (scanned || !_haveTokenData)
         {
             Agg todayAgg;
@@ -532,10 +393,9 @@ internal sealed class WidgetForm : Form
         }
         else
         {
-            int rowCount = Math.Max(_limits.Count, 1);
             int shown = Math.Min(_month.Count, 6);
-            int monthBlock = 28 + (shown + 1) * 18;
-            Height = HeadH + TabH + rowCount * RowH + monthBlock + FootH;
+            int monthBlock = 22 + (shown + 1) * 18;
+            Height = HeadH + TabH + monthBlock + FootH;
         }
         ApplyRegion();
         Invalidate();
@@ -752,22 +612,6 @@ internal sealed class WidgetForm : Form
         catch { }
     }
 
-    private static Color BarColor(int pct, string sev)
-    {
-        if (sev == "critical" || pct >= 90) return Red;
-        if (sev == "warning" || pct >= 70) return Amber;
-        return Accent;
-    }
-
-    private static string ResetText(DateTimeOffset? r)
-    {
-        if (r == null) return "";
-        TimeSpan ts = r.Value.ToLocalTime() - DateTimeOffset.Now;
-        if (ts <= TimeSpan.Zero) return "resets soon";
-        if (ts.TotalHours >= 1) return "resets in " + (int)ts.TotalHours + "h " + ts.Minutes + "m";
-        return "resets in " + ts.Minutes + "m";
-    }
-
     private static string FmtTok(long n)
     {
         if (n >= 1000000) return (n / 1e6).ToString("0.0") + "M";
@@ -809,8 +653,6 @@ internal sealed class WidgetForm : Form
         DrawRoundedBorder(g, new Rectangle(0, 0, Width - 1, Height - 1), 16, Border);
 
         using (Font fTitle = new Font("Segoe UI", 9.5f, FontStyle.Bold))
-        using (Font fLabel = new Font("Segoe UI", 9.5f, FontStyle.Bold))
-        using (Font fPct = new Font("Segoe UI Semibold", 11f, FontStyle.Bold))
         using (Font fSmall = new Font("Segoe UI", 8f))
         using (Font fBold = new Font("Segoe UI", 8f, FontStyle.Bold))
         using (Font fTiny = new Font("Segoe UI", 7.5f))
@@ -825,7 +667,7 @@ internal sealed class WidgetForm : Form
             PaintTabs(g, fBold);
 
             if (_tab == TabSessions) PaintSessions(g, fBold, fSmall, fTiny, bMuted);
-            else PaintUsage(g, fLabel, fPct, fSmall, fBold, bFg, bMuted, bAccent);
+            else PaintUsage(g, fSmall, fBold, bFg, bMuted, bAccent);
 
             using (Pen pen = new Pen(LineC)) g.DrawLine(pen, Pad, Height - FootH + 2, Width - Pad, Height - FootH + 2);
             PaintFooter(g, fSmall, bMuted);
@@ -849,37 +691,9 @@ internal sealed class WidgetForm : Form
         return r;
     }
 
-    private void PaintUsage(Graphics g, Font fLabel, Font fPct, Font fSmall, Font fBold, SolidBrush bFg, SolidBrush bMuted, SolidBrush bAccent)
+    private void PaintUsage(Graphics g, Font fSmall, Font fBold, SolidBrush bFg, SolidBrush bMuted, SolidBrush bAccent)
     {
         int y = HeadH + TabH;
-        if (_limits.Count == 0)
-            g.DrawString(_apiErr.Length > 0 ? _apiErr : "loading...", fSmall, bMuted, Pad, y + 6);
-
-        foreach (LimitRow lr in _limits)
-        {
-            g.DrawString(lr.Label, fLabel, bFg, Pad, y);
-            string pct = lr.Percent + "%";
-            SizeF pw = g.MeasureString(pct, fPct);
-            Color col = BarColor(lr.Percent, lr.Severity);
-            using (SolidBrush bp = new SolidBrush(col))
-                g.DrawString(pct, fPct, bp, Width - Pad - pw.Width, y - 2);
-
-            int bx = Pad;
-            int by = y + 20;
-            int bw = Width - 2 * Pad;
-            int bh = 8;
-            FillRounded(g, new Rectangle(bx, by, bw, bh), bh / 2, Track);
-            int fw = (int)Math.Round(bw * Math.Clamp(lr.Percent, 0, 100) / 100.0);
-            if (fw > 0)
-                FillRounded(g, new Rectangle(bx, by, Math.Max(fw, bh), bh), bh / 2, col);
-
-            g.DrawString(ResetText(lr.ResetsAt), fSmall, bMuted, Pad, y + 30);
-            y += RowH;
-        }
-
-        y += 2;
-        using (Pen pen = new Pen(LineC)) g.DrawLine(pen, Pad, y, Width - Pad, y);
-        y += 8;
         g.DrawString("THIS MONTH  ·  est. $ (API-equiv)", fSmall, bAccent, Pad, y);
         y += 18;
 
@@ -1020,12 +834,10 @@ internal sealed class WidgetForm : Form
 
         string foot = _todayTok > 0 ? "today  " + FmtTok(_todayTok) + " tok  ·  ~$" + _todayCost.ToString("0.00") : "today  -";
         g.DrawString(foot, fSmall, bMuted, Pad, y);
-        if (_apiErr.Length > 0 && _limits.Count > 0)
-        {
-            SizeF ew = g.MeasureString(_apiErr, fSmall);
-            using (SolidBrush bWarn = new SolidBrush(Amber))
-                g.DrawString(_apiErr, fSmall, bWarn, Width - Pad - ew.Width, y);
-        }
+
+        string note = "local only";
+        SizeF nw = g.MeasureString(note, fSmall);
+        g.DrawString(note, fSmall, bMuted, Width - Pad - nw.Width, y);
     }
 
     protected override void Dispose(bool disposing)
